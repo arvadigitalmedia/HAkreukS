@@ -2,13 +2,17 @@
 // ============================================================================
 // WELCOME EPI - PROTECTED PAGE
 // ============================================================================
+// Include konfigurasi dan fungsi sistem
+require_once 'config.php';
+require_once 'fungsi.php';
+
 // Security Headers
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: DENY');
 header('X-XSS-Protection: 1; mode=block');
 header('Referrer-Policy: strict-origin-when-cross-origin');
 
-// Start session
+// Start session untuk kompatibilitas
 session_start();
 
 // ============================================================================
@@ -37,68 +41,83 @@ function redirectWithMessage($url, $message) {
     exit();
 }
 
-// 1. Cek apakah user sudah login
-if (!isset($_SESSION['user_id']) || !isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
-    logAccess('ACCESS_DENIED_NOT_LOGGED_IN');
-    redirectWithMessage(
-        'https://bisnisemasperak.com/login?redirect=' . urlencode($_SERVER['REQUEST_URI']),
-        'Silakan login terlebih dahulu untuk mengakses halaman ini.'
-    );
+// Function untuk mendapatkan login URL yang tepat
+function getLoginUrl() {
+    global $weburl;
+    return $weburl . 'login?redirect=' . urlencode($_SERVER['REQUEST_URI']);
 }
 
-// 2. Cek status user (hanya member yang sudah login yang bisa akses)
-$user_status = $_SESSION['user_status'] ?? 'unknown';
-$user_id = $_SESSION['user_id'] ?? null;
+// 1. Cek autentikasi menggunakan sistem yang sama dengan dashboard
+$user_id = is_login();
+if (!$user_id) {
+    // User belum login - redirect ke halaman login
+    logAccess('ACCESS_DENIED_NOT_LOGGED_IN', null, 'Redirect to login required');
+    redirectWithMessage(
+        getLoginUrl(),
+        'Silakan login terlebih dahulu untuk mengakses halaman member.'
+    );
+    exit;
+}
+
+// User sudah login - ambil data member dari database
+$datamember = db_row("SELECT * FROM `sa_member` WHERE `mem_id`=" . intval($user_id));
+if (!$datamember) {
+    // Data member tidak ditemukan
+    logAccess('ACCESS_DENIED_INVALID_USER', $user_id, 'Member data not found');
+    redirectWithMessage(
+        getLoginUrl(),
+        'Data member tidak ditemukan. Silakan login kembali.'
+    );
+    exit;
+}
 
 // Log successful access
-logAccess('ACCESS_GRANTED', $user_id, 'Status: ' . $user_status);
+logAccess('ACCESS_GRANTED', $user_id, 'Member: ' . $datamember['mem_nama']);
 
-// 3. Cek session timeout (30 menit)
-$session_timeout = 1800; // 30 menit
-if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity']) > $session_timeout) {
-    session_destroy();
-    logAccess('SESSION_TIMEOUT', $user_id);
-    redirectWithMessage(
-        'https://bisnisemasperak.com/login?redirect=' . urlencode($_SERVER['REQUEST_URI']),
-        'Session Anda telah berakhir. Silakan login kembali.'
-    );
-}
-
-// 4. Validasi User Agent consistency (security)
-if (isset($_SESSION['user_agent']) && $_SESSION['user_agent'] !== $_SERVER['HTTP_USER_AGENT']) {
-    session_destroy();
-    logAccess('SECURITY_VIOLATION_UA_MISMATCH', $user_id);
-    redirectWithMessage(
-        'https://bisnisemasperak.com/login',
-        'Terdeteksi aktivitas mencurigakan. Silakan login kembali.'
-    );
-}
-
-// Update last activity time
-$_SESSION['last_activity'] = time();
-
-// Set user agent jika belum ada
-if (!isset($_SESSION['user_agent'])) {
-    $_SESSION['user_agent'] = $_SERVER['HTTP_USER_AGENT'];
-}
-
-// Generate CSRF token untuk forms
+// Generate CSRF token untuk forms jika diperlukan
 if (!isset($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 
-// Get user info for display
-$user_name = isset($_SESSION['user_name']) ? $_SESSION['user_name'] : 'Member EPI';
-$user_email = isset($_SESSION['user_email']) ? $_SESSION['user_email'] : '';
-$user_initial = strtoupper(substr($user_name, 0, 1));
+// Get user info for display dari database
+$user_name = !empty($datamember['mem_nama']) ? htmlspecialchars($datamember['mem_nama'], ENT_QUOTES, 'UTF-8') : 'Member EPI';
+$user_email = !empty($datamember['mem_email']) ? htmlspecialchars($datamember['mem_email'], ENT_QUOTES, 'UTF-8') : '';
+$user_initial = strtoupper(substr(strip_tags($user_name), 0, 1));
+
+// Pastikan user_initial tidak kosong
+if (empty($user_initial) || !ctype_alpha($user_initial)) {
+    $user_initial = 'M'; // Default 'M' untuk Member
+}
 
 // Log access for security monitoring
 error_log("Login access: User={$user_name}, IP={$_SERVER['REMOTE_ADDR']}, Time=" . date('Y-m-d H:i:s'));
 
 // ============================================================================
+// DEBUGGING & ERROR HANDLING (untuk development)
+// ============================================================================
+
+// Function untuk debug session (hanya untuk development)
+function debugSession() {
+    global $user_id, $datamember;
+    $host = $_SERVER['HTTP_HOST'] ?? '';
+    $is_local = (strpos($host, 'localhost') !== false || strpos($host, '127.0.0.1') !== false);
+    
+    if ($is_local && isset($_GET['debug']) && $_GET['debug'] === 'session') {
+        echo "<!-- DEBUG AUTH INFO:\n";
+        echo "User ID: " . ($user_id ?? 'Not set') . "\n";
+        echo "Member Name: " . ($datamember['mem_nama'] ?? 'Not set') . "\n";
+        echo "Member Email: " . ($datamember['mem_email'] ?? 'Not set') . "\n";
+        echo "Member Status: " . ($datamember['mem_status'] ?? 'Not set') . "\n";
+        echo "Cookie Auth: " . (isset($_COOKIE['authentication']) ? 'Present' : 'Not set') . "\n";
+        echo "-->\n";
+    }
+}
+
+// ============================================================================
 // HTML CONTENT STARTS HERE
 // ============================================================================
 ?>
+<?php debugSession(); ?>
 <!DOCTYPE html>
 <html lang="id">
 <head>
@@ -203,6 +222,8 @@ error_log("Login access: User={$user_name}, IP={$_SERVER['REMOTE_ADDR']}, Time="
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(220, 53, 69, 0.4);
         }
+
+
 
         .user-info {
             display: flex;
@@ -385,6 +406,8 @@ error_log("Login access: User={$user_name}, IP={$_SERVER['REMOTE_ADDR']}, Time="
                 color: white;
             }
             
+
+            
             .nav-item.logout-btn:hover {
                 background: linear-gradient(45deg, #c82333, #bd2130);
                 transform: translateX(-5px);
@@ -431,6 +454,8 @@ error_log("Login access: User={$user_name}, IP={$_SERVER['REMOTE_ADDR']}, Time="
             .nav-item.logout-btn {
                 margin-top: 15px;
             }
+            
+
         }
 
         @media (max-width: 360px) {
@@ -989,9 +1014,11 @@ error_log("Login access: User={$user_name}, IP={$_SERVER['REMOTE_ADDR']}, Time="
     <div class="container">
             <div class="welcome-message">
                 <p class="welcome-text">
-                    <strong>Selamat datang EPI Channel!</strong><br><br>
+                    <strong>Selamat datang kembali, <?php echo $user_name; ?>!</strong><br><br>
                     Terima kasih sudah bergabung dan menjadi bagian dari <span class="gold-accent">Bisnis Emas Perak Indonesia</span>. 
                     Selamat menempuh perjalanan sukses bisnis emas perak bersama EPI - Indonesian Bullion Ecosystem.
+                    <br><br>
+                    <em>Status: Member Aktif | Akses: Full Digital Content</em>
                 </p>
             </div>
 
