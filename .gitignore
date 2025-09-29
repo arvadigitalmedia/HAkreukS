@@ -1,0 +1,19 @@
+# config
+config.php
+
+# environment file
+.env
+
+# log files
+*.log
+
+# cache / temp
+/tmp/
+.cache/
+/cache
+
+# vendor (kalau pakai composer)
+vendor/
+
+# Cookie
+sacookie.cok

@@ -60,6 +60,11 @@ function db_error() {
     return mysqli_error($con);
 }
 
+function db_escape($string) {
+    global $con;
+    return mysqli_real_escape_string($con, $string);
+}
+
 function db_select($query) {
     $rows = array();
     $result = db_query($query);

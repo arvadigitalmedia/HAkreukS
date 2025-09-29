@@ -3,8 +3,16 @@ if (!defined('IS_IN_SCRIPT')) { die(); exit(); }
 if ($datamember['mem_role'] < 5) { die(); exit(); }
 $head['pagetitle']='Integrasi WA Gateway';
 showheader($head);
-$dir = caripath('theme').'/service';
-$file = scandir($dir);
+$dir = __DIR__ . '/../../service';
+$file = is_dir($dir) ? scandir($dir) : false;
+
+if (!is_dir($dir)) {
+    echo '<div class="alert alert-warning alert-dismissible fade show" role="alert">
+        <strong>Warning!</strong> Direktori service tidak ditemukan. Path: ' . $dir . '
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>';
+}
+
 if (is_array($file) && count($file) > 3) {
 	$i = 0;
 	foreach ($file as $file) {
